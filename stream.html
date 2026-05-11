@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { margin: 0; padding: 20px; font-family: 'Arial', sans-serif; background: transparent; overflow: hidden; }
+        .container { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+        #translatedText { 
+            color: #ffffff; 
+            font-size: 40px; 
+            font-weight: bold; 
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8), 0 0 10px rgba(0,0,0,0.5);
+            line-height: 1.2;
+        }
+        #originalText { color: #aaaaaa; font-size: 20px; text-shadow: 1px 1px 2px black; }
+        .status { color: #555; font-size: 12px; margin-top: 5px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="translatedText">Нажмите для старта...</div>
+        <div id="originalText"></div>
+        <div class="status" id="status">Ожидание...</div>
+    </div>
+
+<script>
+    const API_KEY = 'AIzaSyDeAl68QSR7be_9DOlI_DVr4ETxXldtWTw'; // <--- ВСТАВЬ КЛЮЧ
+    const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
+    
+    const translatedEl = document.getElementById('translatedText');
+    const originalEl = document.getElementById('originalText');
+    const statusEl = document.getElementById('status');
+
+    let recognition;
+
+    async function translate(text) {
+        statusEl.innerText = "Перевод...";
+        try {
+            const response = await fetch(API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{parts: [{text: `Переведи на английский (только перевод): ${text}`}]}]
+                })
+            });
+            const data = await response.json();
+            const translation = data.candidates[0].content.parts[0].text;
+            translatedEl.innerText = translation;
+            statusEl.innerText = "Работает";
+        } catch (e) {
+            statusEl.innerText = "Ошибка API";
+        }
+    }
+
+    function init() {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) { alert("Ваш браузер не поддерживает распознавание речи!"); return; }
+
+        recognition = new SpeechRecognition();
+        recognition.lang = 'ru-RU';
+        recognition.continuous = true;
+        recognition.interimResults = false;
+
+        recognition.onresult = (event) => {
+            const text = event.results[event.results.length - 1][0].transcript;
+            originalEl.innerText = text;
+            translate(text);
+        };
+
+        recognition.onend = () => recognition.start();
+        recognition.start();
+        statusEl.innerText = "Микрофон включен";
+    }
+
+    document.body.addEventListener('click', init, { once: true });
+</script>
+</body>
+</html>
