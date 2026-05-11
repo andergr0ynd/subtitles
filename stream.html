@@ -24,7 +24,8 @@
     </div>
 
 <script>
-    const API_KEY = 'AIzaSyDeAl68QSR7be_9DOlI_DVr4ETxXldtWTw'; // <--- ВСТАВЬ КЛЮЧ
+    console.log("Скрипт загружен");
+    const API_KEY = 'AIzaSyDeAl68QSR7be_9DOlI_DVr4ETxXldtWTw'; // Убедитесь, что он актуален
     const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
     
     const translatedEl = document.getElementById('translatedText');
@@ -34,45 +35,66 @@
     let recognition;
 
     async function translate(text) {
+        console.log("Запрос к API для:", text);
         statusEl.innerText = "Перевод...";
         try {
             const response = await fetch(API_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    contents: [{parts: [{text: `Переведи на английский (только перевод): ${text}`}]}]
+                    contents: [{parts: [{text: `Translate to English: ${text}`}]}]
                 })
             });
             const data = await response.json();
-            const translation = data.candidates[0].content.parts[0].text;
-            translatedEl.innerText = translation;
-            statusEl.innerText = "Работает";
+            console.log("Ответ API:", data);
+            
+            if (data.candidates) {
+                const translation = data.candidates[0].content.parts[0].text;
+                translatedEl.innerText = translation;
+                statusEl.innerText = "Работает";
+            } else {
+                statusEl.innerText = "Ошибка: нет кандидатов";
+            }
         } catch (e) {
-            statusEl.innerText = "Ошибка API";
+            console.error("Ошибка при запросе:", e);
+            statusEl.innerText = "Ошибка запроса";
         }
     }
 
     function init() {
+        console.log("Инициализация...");
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognition) { alert("Ваш браузер не поддерживает распознавание речи!"); return; }
+        if (!SpeechRecognition) { 
+            alert("Ваш браузер не поддерживает распознавание речи!"); 
+            return; 
+        }
 
         recognition = new SpeechRecognition();
         recognition.lang = 'ru-RU';
         recognition.continuous = true;
         recognition.interimResults = false;
 
+        recognition.onstart = () => console.log("Распознавание запущено");
         recognition.onresult = (event) => {
             const text = event.results[event.results.length - 1][0].transcript;
+            console.log("Распознано:", text);
             originalEl.innerText = text;
             translate(text);
         };
+        recognition.onerror = (e) => console.error("Ошибка распознавания:", e.error);
+        recognition.onend = () => {
+            console.log("Распознавание остановлено, перезапуск...");
+            recognition.start();
+        };
 
-        recognition.onend = () => recognition.start();
         recognition.start();
         statusEl.innerText = "Микрофон включен";
     }
 
-    document.body.addEventListener('click', init, { once: true });
+    document.body.addEventListener('click', () => {
+        console.log("Клик получен");
+        init();
+    }, { once: true });
 </script>
 </body>
 </html>
