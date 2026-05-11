@@ -14,6 +14,17 @@
         }
         #originalText { color: #aaaaaa; font-size: 20px; text-shadow: 1px 1px 2px black; }
         .status { color: #555; font-size: 12px; margin-top: 5px; }
+        .retry-btn { 
+            margin-top: 10px;
+            padding: 8px 16px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .retry-btn:hover { background: #45a049; }
     </style>
 </head>
 <body>
@@ -21,6 +32,7 @@
         <div id="translatedText">Нажмите для старта...</div>
         <div id="originalText"></div>
         <div class="status" id="status">Ожидание...</div>
+        <button class="retry-btn" id="retryBtn" style="display:none;">🔄 Перезапустить микрофон</button>
     </div>
 
 <script>
@@ -32,8 +44,11 @@
     const translatedEl = document.getElementById('translatedText');
     const originalEl = document.getElementById('originalText');
     const statusEl = document.getElementById('status');
+    const retryBtn = document.getElementById('retryBtn');
 
     let recognition;
+    let reconnectAttempts = 0;
+    let reconnectTimeout = null;
 
     async function translate(text) {
         console.log("Запрос к DeepSeek для:", text);
@@ -69,16 +84,117 @@
             if (data.choices && data.choices[0] && data.choices[0].message) {
                 const translation = data.choices[0].message.content;
                 translatedEl.innerText = translation;
-                statusEl.innerText = "Работает";
+                statusEl.innerText = "🎤 Работает";
             } else {
                 console.error("Ошибка API:", data);
-                statusEl.innerText = `Ошибка: ${data.error?.message || "нет ответа"}`;
+                statusEl.innerText = `Ошибка API`;
                 translatedEl.innerText = "Ошибка перевода";
             }
         } catch (e) {
             console.error("Ошибка при запросе:", e);
-            statusEl.innerText = "Ошибка запроса";
-            translatedEl.innerText = "Проверьте API ключ";
+            statusEl.innerText = "Ошибка сети";
+            translatedEl.innerText = "Проверьте интернет";
+        }
+    }
+
+    function startRecognition() {
+        if (recognition) {
+            try {
+                recognition.stop();
+            } catch(e) {}
+        }
+        
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) { 
+            statusEl.innerText = "❌ Браузер не поддерживает Speech Recognition";
+            translatedEl.innerText = "Используйте Chrome/Edge/Safari";
+            return false; 
+        }
+
+        recognition = new SpeechRecognition();
+        recognition.lang = 'ru-RU';
+        recognition.continuous = true;
+        recognition.interimResults = true; // Включаем промежуточные результаты
+        recognition.maxAlternatives = 1;
+
+        recognition.onstart = () => {
+            console.log("Распознавание запущено");
+            statusEl.innerText = "🎤 Слушаю... (говорите по-русски)";
+            retryBtn.style.display = "none";
+            reconnectAttempts = 0;
+        };
+        
+        recognition.onresult = (event) => {
+            const lastResult = event.results[event.results.length - 1];
+            if (lastResult.isFinal) {
+                const text = lastResult[0].transcript;
+                console.log("Распознано:", text);
+                originalEl.innerText = text;
+                translate(text);
+            } else {
+                // Показываем промежуточный результат
+                const interimText = event.results[event.results.length - 1][0].transcript;
+                originalEl.innerText = interimText + " ...";
+            }
+        };
+        
+        recognition.onerror = (e) => {
+            console.error("Ошибка распознавания:", e.error, e.message);
+            
+            if (e.error === 'network') {
+                statusEl.innerText = "⚠️ Ошибка сети микрофона. Проверьте разрешения.";
+                translatedEl.innerText = "Разрешите доступ к микрофону";
+                retryBtn.style.display = "block";
+                
+                // Не перезапускаем автоматически при network ошибке
+                if (reconnectTimeout) clearTimeout(reconnectTimeout);
+            } else if (e.error === 'not-allowed') {
+                statusEl.innerText = "❌ Нет доступа к микрофону";
+                translatedEl.innerText = "Разрешите микрофон в браузере";
+                retryBtn.style.display = "block";
+            } else if (e.error === 'no-speech') {
+                statusEl.innerText = "🎤 Не слышно речи... продолжаю слушать";
+                // Не критичная ошибка, просто игнорируем
+            } else {
+                statusEl.innerText = `Ошибка: ${e.error}`;
+                // Пытаемся перезапустить через 2 секунды при других ошибках
+                if (reconnectAttempts < 5 && !reconnectTimeout) {
+                    reconnectTimeout = setTimeout(() => {
+                        console.log("Попытка перезапуска...");
+                        reconnectTimeout = null;
+                        startRecognition();
+                    }, 2000);
+                }
+            }
+        };
+        
+        recognition.onend = () => {
+            console.log("Распознавание остановлено");
+            statusEl.innerText = "🔄 Служба речи остановлена";
+            
+            // Не перезапускаем если была network ошибка
+            if (reconnectAttempts < 3 && retryBtn.style.display === "none") {
+                reconnectAttempts++;
+                console.log(`Автоматический перезапуск через 1 секунду (попытка ${reconnectAttempts})`);
+                setTimeout(() => {
+                    if (retryBtn.style.display === "none") {
+                        startRecognition();
+                    }
+                }, 1000);
+            } else if (reconnectAttempts >= 3) {
+                statusEl.innerText = "🔴 Ошибка микрофона. Нажмите кнопку для перезапуска";
+                retryBtn.style.display = "block";
+            }
+        };
+
+        try {
+            recognition.start();
+            return true;
+        } catch(e) {
+            console.error("Ошибка запуска:", e);
+            statusEl.innerText = "❌ Не удалось запустить микрофон";
+            retryBtn.style.display = "block";
+            return false;
         }
     }
 
@@ -92,47 +208,37 @@
             return;
         }
         
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognition) { 
-            alert("Ваш браузер не поддерживает распознавание речи!"); 
-            return; 
+        // Проверка поддержки HTTPS (Speech Recognition требует HTTPS или localhost)
+        if (location.protocol !== 'https:' && location.hostname !== 'localhost' && !location.hostname.includes('127.0.0.1')) {
+            statusEl.innerText = "⚠️ Для микрофона нужен HTTPS";
+            translatedEl.innerText = "Откройте через HTTPS или localhost";
+            console.warn("Speech Recognition может не работать без HTTPS");
         }
-
-        recognition = new SpeechRecognition();
-        recognition.lang = 'ru-RU';
-        recognition.continuous = true;
-        recognition.interimResults = false;
-
-        recognition.onstart = () => {
-            console.log("Распознавание запущено");
-            statusEl.innerText = "🎤 Слушаю...";
-        };
         
-        recognition.onresult = (event) => {
-            const text = event.results[event.results.length - 1][0].transcript;
-            console.log("Распознано:", text);
-            originalEl.innerText = text;
-            translate(text);
-        };
-        
-        recognition.onerror = (e) => {
-            console.error("Ошибка распознавания:", e.error);
-            statusEl.innerText = `Ошибка микрофона: ${e.error}`;
-        };
-        
-        recognition.onend = () => {
-            console.log("Распознавание остановлено, перезапуск...");
-            statusEl.innerText = "🔄 Перезапуск...";
-            recognition.start();
-        };
-
-        recognition.start();
+        startRecognition();
     }
 
+    // Кнопка перезапуска
+    retryBtn.addEventListener('click', () => {
+        console.log("Ручной перезапуск");
+        reconnectAttempts = 0;
+        if (reconnectTimeout) clearTimeout(reconnectTimeout);
+        startRecognition();
+    });
+
+    // Клик для первого запуска
     document.body.addEventListener('click', () => {
         console.log("Клик получен");
         init();
     }, { once: true });
+    
+    // Также можно запустить по энтер или пробелу
+    document.addEventListener('keydown', (e) => {
+        if ((e.code === 'Space' || e.code === 'Enter') && retryBtn.style.display === 'block') {
+            e.preventDefault();
+            retryBtn.click();
+        }
+    });
 </script>
 </body>
 </html>
